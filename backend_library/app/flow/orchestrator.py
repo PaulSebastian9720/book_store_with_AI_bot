@@ -518,19 +518,25 @@ def _extract_number(query: str, context: str = "any") -> int | None:
     context="any": primer número encontrado
     """
     if context == "quantity":
+        # Pattern: "x4", "(x4)", "×3" — common shorthand
+        m = re.search(r'[x×]\s*(\d+)', query, re.IGNORECASE)
+        if m:
+            n = int(m.group(1))
+            if 1 <= n <= 99:
+                return n
         # Pattern: "N copias/unidades/ejemplares"
         m = re.search(r'(\d+)\s*(?:copias?|unidades?|ejemplares?)', query, re.IGNORECASE)
         if m:
             n = int(m.group(1))
             if 1 <= n <= 99:
                 return n
-        # Pattern: number before a title-like word (e.g., "compra 3 The Alchemist")
-        m = re.search(r'(?:compra|dame|ponme|tráeme|traeme|agrega|añade|buy|add|get)\s+(\d+)\s+', query, re.IGNORECASE)
+        # Pattern: number after action verb (e.g., "agregar 3 Dune", "compra 2 libros")
+        m = re.search(r'(?:comprar?|dame|ponme|tráeme|traeme|agregar?|añad[ei]r?|buy|add|get)\s+(\d+)\s+', query, re.IGNORECASE)
         if m:
             n = int(m.group(1))
             if 1 <= n <= 99:
                 return n
-        # Pattern: number at start or standalone small number
+        # Pattern: standalone small number (not part of a title like "1984")
         m = re.search(r'\b(\d{1,2})\b', query)
         if m:
             n = int(m.group(1))

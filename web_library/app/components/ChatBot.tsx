@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { BotIcon, UserIcon, SendIcon, CloseIcon } from "./Icons";
+import ReactMarkdown from "react-markdown";
+import { BotIcon, UserIcon, SendIcon, CloseIcon, InfoIcon } from "./Icons";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
 
@@ -52,6 +53,69 @@ function saveHistory(userId: number, messages: ChatMessage[]) {
   }
 }
 
+function BookCardItem({
+  book,
+  connected,
+  onAddToCart,
+}: {
+  book: BookCard;
+  connected: boolean;
+  onAddToCart: (title: string, qty: number) => void;
+}) {
+  const [qty, setQty] = useState(1);
+
+  return (
+    <div className="flex-shrink-0 w-28 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+      {book.image_base64 && (
+        <img
+          src={book.image_base64}
+          alt={book.title}
+          className="w-full h-36 object-cover"
+        />
+      )}
+      <div className="p-2">
+        <p className="text-[10px] font-semibold text-gray-800 leading-tight line-clamp-2">
+          {book.title}
+        </p>
+        {book.author && (
+          <p className="text-[9px] text-gray-500 mt-0.5 truncate">
+            {book.author}
+          </p>
+        )}
+        {book.price != null && (
+          <p className="text-[10px] font-bold text-[#2563eb] mt-1">
+            ${book.price.toFixed(2)}
+          </p>
+        )}
+        <div className="flex items-center gap-1 mt-1.5">
+          <button
+            onClick={() => setQty((q) => Math.max(1, q - 1))}
+            className="w-5 h-5 flex items-center justify-center rounded bg-gray-100 text-gray-600 text-[10px] font-bold hover:bg-gray-200"
+          >
+            -
+          </button>
+          <span className="text-[10px] font-semibold text-gray-700 w-5 text-center">
+            x{qty}
+          </span>
+          <button
+            onClick={() => setQty((q) => Math.min(10, q + 1))}
+            className="w-5 h-5 flex items-center justify-center rounded bg-gray-100 text-gray-600 text-[10px] font-bold hover:bg-gray-200"
+          >
+            +
+          </button>
+        </div>
+        <button
+          onClick={() => onAddToCart(book.title, qty)}
+          disabled={!connected}
+          className="mt-1.5 w-full text-[9px] font-semibold py-1 rounded bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] disabled:opacity-40 transition-colors"
+        >
+          Agregar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatWidget({ userId, userName, isOpen, onToggle }: ChatWidgetProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const history = loadHistory(userId);
@@ -68,6 +132,7 @@ export default function ChatWidget({ userId, userName, isOpen, onToggle }: ChatW
   const [input, setInput] = useState("");
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [showTips, setShowTips] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -246,13 +311,42 @@ export default function ChatWidget({ userId, userName, isOpen, onToggle }: ChatW
               Limpiar
             </button>
             <button
-              onClick={onToggle}
+              onClick={() => setShowTips((v) => !v)}
               className="ml-1 p-1 rounded hover:bg-white/20 transition-colors"
+              title="Tips de uso"
+            >
+              <InfoIcon size={18} />
+            </button>
+            <button
+              onClick={onToggle}
+              className="p-1 rounded hover:bg-white/20 transition-colors"
             >
               <CloseIcon size={18} />
             </button>
           </div>
         </div>
+
+        {/* Tips panel */}
+        {showTips && (
+          <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 text-xs text-gray-700 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-[13px] text-gray-800">Tips para escribir queries</p>
+              <button onClick={() => setShowTips(false)} className="text-gray-400 hover:text-gray-600">
+                <CloseIcon size={14} />
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              <p><strong>Buscar:</strong> &quot;Buscar libros de fantasía&quot;, &quot;Novelas de ciencia ficción&quot;</p>
+              <p><strong>Agregar al carrito:</strong> &quot;Agregar Dune al carrito&quot;, &quot;Agregar x3 1984 al carrito&quot;</p>
+              <p><strong>Cantidad:</strong> usa <strong>x2</strong>, <strong>x5</strong>, o &quot;3 copias&quot; para indicar cantidad</p>
+              <p><strong>Checkout:</strong> &quot;Hacer checkout&quot; crea la orden con lo del carrito</p>
+              <p><strong>Pagar:</strong> &quot;Pagar orden #1&quot; → te pide confirmación → &quot;Sí, confirmo&quot;</p>
+              <p><strong>Cancelar:</strong> &quot;Cancelar orden #2&quot;</p>
+              <p><strong>Ver carrito:</strong> &quot;Ver mi carrito&quot;</p>
+              <p><strong>Estado:</strong> &quot;Estado de mi pedido&quot; o &quot;Estado de la orden #1&quot;</p>
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3 chat-scroll">
@@ -287,38 +381,32 @@ export default function ChatWidget({ userId, userName, isOpen, onToggle }: ChatW
                   </span>
                 ) : (
                   <>
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    <div className="chat-md">
+                      <ReactMarkdown
+                        components={{
+                          p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                          ul: ({ children }) => <ul className="list-disc pl-4 mb-1">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal pl-4 mb-1">{children}</ol>,
+                          li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                          em: ({ children }) => <em>{children}</em>,
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
 
                     {msg.books && msg.books.length > 0 && (
                       <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                         {msg.books.map((book) => (
-                          <div
+                          <BookCardItem
                             key={book.id}
-                            className="flex-shrink-0 w-28 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm"
-                          >
-                            {book.image_base64 && (
-                              <img
-                                src={book.image_base64}
-                                alt={book.title}
-                                className="w-full h-36 object-cover"
-                              />
-                            )}
-                            <div className="p-2">
-                              <p className="text-[10px] font-semibold text-gray-800 leading-tight line-clamp-2">
-                                {book.title}
-                              </p>
-                              {book.author && (
-                                <p className="text-[9px] text-gray-500 mt-0.5 truncate">
-                                  {book.author}
-                                </p>
-                              )}
-                              {book.price != null && (
-                                <p className="text-[10px] font-bold text-[#2563eb] mt-1">
-                                  ${book.price.toFixed(2)}
-                                </p>
-                              )}
-                            </div>
-                          </div>
+                            book={book}
+                            connected={connected}
+                            onAddToCart={(title, qty) =>
+                              sendMessage(`Agregar ${title} x${qty} al carrito`)
+                            }
+                          />
                         ))}
                       </div>
                     )}

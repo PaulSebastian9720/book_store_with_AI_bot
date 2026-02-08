@@ -127,6 +127,12 @@ REGLAS IMPORTANTES:
 - Se conciso pero COMPLETO con la informacion
 - NO digas solo "aqui estan los detalles" sin mostrarlos
 
+FORMATO:
+- Usa markdown sencillo: **negritas** para datos importantes (titulos, precios, totales)
+- Usa listas con - para enumerar libros o items
+- NO uses titulos (#), ni tablas, ni bloques de codigo
+- Mantén el formato limpio y facil de leer
+
 Accion realizada: {action}
 Datos del resultado: {result_json}
 Consulta original del usuario: {query}
@@ -150,10 +156,10 @@ def _build_fallback_response(action: str, result: dict) -> str:
     if action == "search_books_for_sale":
         books = result.get("books", [])
         if not books:
-            return "No encontre libros con esos criterios."
-        lines = [f"Encontre {len(books)} libro(s):\n"]
+            return "No encontré libros con esos criterios."
+        lines = [f"Encontré **{len(books)}** libro(s):\n"]
         for b in books[:10]:
-            lines.append(f"- {b['title']} por {b['author']} -- ${b['price']:.2f}")
+            lines.append(f"- **{b['title']}** por {b['author']} — **${b['price']:.2f}**")
         return "\n".join(lines)
 
     if action == "recommend_books_for_purchase":
@@ -162,18 +168,18 @@ def _build_fallback_response(action: str, result: dict) -> str:
             return "No tengo recomendaciones por ahora."
         lines = ["Te recomiendo:\n"]
         for b in recs:
-            lines.append(f"- {b['title']} por {b['author']} -- ${b['price']:.2f}")
+            lines.append(f"- **{b['title']}** por {b['author']} — **${b['price']:.2f}**")
         return "\n".join(lines)
 
     if action == "get_book_product_details":
         if "error" in result:
             return result["error"]
         return (
-            f"{result.get('title', '?')}\n"
-            f"Autor: {result.get('author', '?')}\n"
-            f"Genero: {result.get('genre', '?')}\n"
-            f"Precio: ${result.get('price', 0):.2f}\n"
-            f"Stock: {result.get('stock', 0)} unidades\n"
+            f"**{result.get('title', '?')}**\n"
+            f"- **Autor:** {result.get('author', '?')}\n"
+            f"- **Género:** {result.get('genre', '?')}\n"
+            f"- **Precio:** ${result.get('price', 0):.2f}\n"
+            f"- **Stock:** {result.get('stock', 0)} unidades\n\n"
             f"{result.get('description', '')}"
         )
 
@@ -183,38 +189,24 @@ def _build_fallback_response(action: str, result: dict) -> str:
         title = result.get("title", "El libro")
         stock = result.get("stock", 0)
         if stock > 0:
-            return f"{title} tiene {stock} unidades disponibles."
-        return f"{title} esta agotado."
-
-    if action == "add_book_to_cart":
-        if not result.get("success"):
-            return result.get("message", "No se pudo agregar al carrito.")
-        return f"{result.get('book', 'Libro')} (x{result.get('quantity', 1)}) agregado al carrito."
-
-    if action == "remove_book_from_cart":
-        if not result.get("success"):
-            return result.get("message", "No se pudo eliminar del carrito.")
-        return "Libro eliminado del carrito."
-
-    if action == "checkout_order":
-        if not result.get("success"):
-            return result.get("message", "No se pudo crear la orden.")
-        return f"Orden #{result.get('order_id')} creada. Total: ${result.get('total', 0):.2f}. {result.get('items_count', 0)} item(s)."
-
-    if action == "process_payment":
-        if not result.get("success"):
-            return result.get("message", "El pago fue rechazado. Intenta de nuevo.")
-        return f"Pago aprobado para la orden #{result.get('order_id')}. Monto: ${result.get('amount', 0):.2f}."
-
-    if action == "cancel_order":
-        if not result.get("success"):
-            return result.get("message", "No se pudo cancelar la orden.")
-        return f"Orden #{result.get('order_id')} cancelada."
+            return f"**{title}** tiene **{stock}** unidades disponibles."
+        return f"**{title}** está agotado."
 
     if action == "get_order_status":
         if "error" in result:
             return result["error"]
-        return f"Orden #{result.get('order_id')}: estado {result.get('status', '?')}, total ${result.get('total', 0):.2f}."
+        status_labels = {
+            "created": "Creada (pendiente de pago)",
+            "paid": "Pagada",
+            "cancelled": "Cancelada",
+        }
+        status = result.get("status", "?")
+        label = status_labels.get(status, status)
+        return (
+            f"Orden **#{result.get('order_id')}**\n"
+            f"- **Estado:** {label}\n"
+            f"- **Total:** ${result.get('total', 0):.2f}"
+        )
 
     return FALLBACK_RESPONSE
 
