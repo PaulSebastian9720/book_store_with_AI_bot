@@ -189,11 +189,11 @@ export default function ChatWidget({ userId, userName, isOpen, onToggle }: ChatW
 
   const quickActions = [
     { label: "Ver catálogo", query: "Buscar libros disponibles" },
-    { label: "Ciencia ficción", query: "Buscar libros de ciencia ficción" },
-    { label: "Fantasía", query: "Buscar libros de fantasía" },
-    { label: "Recomiéndame algo", query: "Recomiéndame un buen libro" },
-    { label: "Mi carrito", query: "Hacer checkout" },
+    { label: "Recomendaciones", query: "Recomiéndame un buen libro" },
+    { label: "Mi carrito", query: "Ver mi carrito" },
+    { label: "Checkout", query: "Hacer checkout de mi carrito" },
     { label: "Mi pedido", query: "Estado de mi pedido" },
+    { label: "Pagar", query: "Procesar pago de mi orden" },
   ];
 
   return (
