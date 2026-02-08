@@ -219,6 +219,95 @@ def _build_fallback_response(action: str, result: dict) -> str:
     return FALLBACK_RESPONSE
 
 
+TRANSACTIONAL_ACTIONS = {
+    "add_book_to_cart",
+    "remove_book_from_cart",
+    "checkout_order",
+    "process_payment",
+    "confirm_payment",
+    "cancel_order",
+    "view_cart",
+}
+
+
+def build_transactional_response(action: str, result: dict) -> str:
+    """Template-based responses for transactional actions (no LLM needed)."""
+
+    if action == "add_book_to_cart":
+        if not result.get("success"):
+            return result.get("message", "No se pudo agregar al carrito.")
+        book = result.get("book", "Libro")
+        qty = result.get("quantity", 1)
+        return (
+            f"**{book}** (x{qty}) agregado al carrito.\n\n"
+            f"¿Qué deseas hacer ahora?\n"
+            f"- Escribe **\"ver mi carrito\"** para ver el contenido\n"
+            f"- Escribe **\"hacer checkout\"** para crear tu orden"
+        )
+
+    if action == "remove_book_from_cart":
+        if not result.get("success"):
+            return result.get("message", "No se pudo eliminar del carrito.")
+        return "Libro eliminado del carrito. Escribe **\"ver mi carrito\"** para ver el contenido actualizado."
+
+    if action == "checkout_order":
+        if not result.get("success"):
+            return result.get("message", "No se pudo crear la orden.")
+        order_id = result.get("order_id")
+        total = result.get("total", 0)
+        items = result.get("items_count", 0)
+        return (
+            f"Orden **#{order_id}** creada con {items} item(s).\n"
+            f"**Total: ${total:.2f}**\n\n"
+            f"Para pagar, escribe **\"pagar orden #{order_id}\"**."
+        )
+
+    if action == "process_payment":
+        if result.get("needs_confirmation"):
+            order_id = result.get("order_id")
+            amount = result.get("amount", 0)
+            return (
+                f"Estás a punto de pagar **${amount:.2f}** para la orden **#{order_id}**.\n\n"
+                f"Responde **\"sí, confirmo el pago\"** para procesar el pago."
+            )
+        if not result.get("success"):
+            return result.get("message", "El pago fue rechazado. Intenta de nuevo.")
+        return (
+            f"Pago **aprobado** para la orden **#{result.get('order_id')}**.\n"
+            f"Monto: **${result.get('amount', 0):.2f}**.\n\n"
+            f"¡Gracias por tu compra!"
+        )
+
+    if action == "confirm_payment":
+        if not result.get("success"):
+            return result.get("message", "El pago fue rechazado. Intenta de nuevo.")
+        return (
+            f"Pago **aprobado** para la orden **#{result.get('order_id')}**.\n"
+            f"Monto: **${result.get('amount', 0):.2f}**.\n\n"
+            f"¡Gracias por tu compra!"
+        )
+
+    if action == "cancel_order":
+        if not result.get("success"):
+            return result.get("message", "No se pudo cancelar la orden.")
+        return f"Orden **#{result.get('order_id')}** cancelada exitosamente."
+
+    if action == "view_cart":
+        if "error" in result:
+            return result["error"]
+        items = result.get("items", [])
+        if not items:
+            return "Tu carrito está vacío. Escribe **\"buscar libros\"** para explorar el catálogo."
+        lines = ["**Tu carrito:**\n"]
+        for item in items:
+            lines.append(f"- {item['title']} (x{item['quantity']}) — ${item['subtotal']:.2f}")
+        lines.append(f"\n**Total: ${result.get('total', 0):.2f}**")
+        lines.append(f"\nEscribe **\"hacer checkout\"** para crear tu orden.")
+        return "\n".join(lines)
+
+    return _build_fallback_response(action, result)
+
+
 async def check_domain_relevance(query: str) -> bool:
     prompt = f"""Is this query related to a bookstore (buying, searching, recommending books, cart, orders, payments)?
 Query: "{query}"

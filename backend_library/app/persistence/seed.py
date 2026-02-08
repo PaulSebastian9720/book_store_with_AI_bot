@@ -794,6 +794,62 @@ SEMANTIC_FUNCTIONS = [
         ],
     },
     {
+        "name": "confirm_payment",
+        "description": (
+            "Confirmar y ejecutar el pago de una orden después de que el usuario haya "
+            "revisado el monto y aceptado explícitamente. Se utiliza cuando el usuario "
+            "responde afirmativamente a la pregunta de confirmación de pago."
+        ),
+        "examples": [
+            "sí, confirmo el pago",
+            "sí pagar",
+            "confirmo",
+            "dale",
+            "sí, adelante",
+            "ok, paga",
+            "claro, procede",
+            "sí quiero pagar",
+            "confirmar pago",
+            "va, págalo",
+            "listo, confirmo",
+            "seguro, pagar",
+            "adelante con el pago",
+            "procede con el pago",
+            "sí, confirmo",
+            "okey, pagar",
+            "de acuerdo, paga",
+            "sí, pagar ahora",
+            "confirmo el pago de mi orden",
+            "dale, paga la orden",
+        ],
+    },
+    {
+        "name": "view_cart",
+        "description": (
+            "Ver el contenido actual del carrito de compras del usuario, incluyendo "
+            "los libros agregados, cantidades y el total. Se usa cuando el usuario "
+            "quiere revisar qué tiene en su carrito antes de hacer checkout."
+        ),
+        "examples": [
+            "ver mi carrito",
+            "qué tengo en el carrito",
+            "muéstrame mi carrito",
+            "contenido del carrito",
+            "mi carrito",
+            "qué hay en mi carrito",
+            "revisar carrito",
+            "ver carrito de compras",
+            "qué llevo en el carrito",
+            "mostrar mi carrito",
+            "dame mi carrito",
+            "consultar carrito",
+            "enseñame el carrito",
+            "ver lo que tengo en el carrito",
+            "qué productos tengo",
+            "ver mi lista de compras",
+        ],
+    },
+    {
         "name": "get_order_status",
         "description": (
             "Consultar el estado actual de una orden, incluyendo si está creada, "

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.persistence.models import (
     Book, Cart, CartItem, Order, OrderItem, Payment,
 )
-from app.ai.llm import build_natural_response
+from app.ai.llm import build_natural_response, build_transactional_response, TRANSACTIONAL_ACTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +62,10 @@ async def validate_input(state: FlowState) -> FlowState:
             missing.append("book_id")
 
     elif fn == "process_payment":
-        if not params.get("order_id"):
-            missing.append("order_id")
+        pass  # order_id optional — will use latest "created" order if missing
+
+    elif fn == "confirm_payment":
+        pass  # order_id optional — will use latest "created" order if missing
 
     elif fn == "cancel_order":
         if not params.get("order_id"):
@@ -140,17 +142,24 @@ async def load_context(state: FlowState, session: AsyncSession) -> FlowState:
                     "price": book.price if book else 0,
                 })
 
-    elif fn in ("process_payment", "cancel_order", "get_order_status"):
+    elif fn in ("process_payment", "confirm_payment", "cancel_order", "get_order_status"):
         order_id = params.get("order_id")
         if order_id:
             result = await session.execute(
                 select(Order).where(Order.id == order_id, Order.user_id == user_id)
             )
             order = result.scalar_one_or_none()
-            if order:
-                ctx["order"] = {
-                    "id": order.id, "status": order.status, "total": order.total,
-                }
+        else:
+            # Auto-resolve: get latest "created" order for the user
+            result = await session.execute(
+                select(Order).where(Order.user_id == user_id, Order.status == "created")
+                .order_by(Order.created_at.desc()).limit(1)
+            )
+            order = result.scalar_one_or_none()
+        if order:
+            ctx["order"] = {
+                "id": order.id, "status": order.status, "total": order.total,
+            }
 
     logger.info("Contexto cargado: %s", list(ctx.keys()))
     return {**state, "state_trace": trace, "context": ctx}
@@ -178,6 +187,9 @@ async def apply_action(state: FlowState, session: AsyncSession) -> FlowState:
             result = await _action_checkout(session, user_id, ctx)
 
         elif fn == "process_payment":
+            result = _build_payment_confirmation(ctx)
+
+        elif fn == "confirm_payment":
             result = await _action_process_payment(session, ctx)
 
         elif fn == "cancel_order":
@@ -214,22 +226,24 @@ async def build_response(state: FlowState) -> FlowState:
     trace = list(state.get("state_trace", []))
     trace.append("BUILD_RESPONSE")
 
+    fn = state["function_name"]
+    action_result = state.get("action_result", {})
+
     if state.get("error"):
         response = f"Hubo un error al procesar tu solicitud: {state['error']}"
+    elif fn in TRANSACTIONAL_ACTIONS:
+        response = build_transactional_response(fn, action_result)
     else:
         try:
             response = await build_natural_response({
-                "action": state["function_name"],
-                "result": state.get("action_result", {}),
+                "action": fn,
+                "result": action_result,
                 "query": state.get("query", ""),
             })
         except Exception as e:
             logger.warning("LLM no disponible, usando plantilla: %s", str(e))
             from app.ai.llm import _build_fallback_response
-            response = _build_fallback_response(
-                state["function_name"],
-                state.get("action_result", {}),
-            )
+            response = _build_fallback_response(fn, action_result)
 
     logger.info("Respuesta construida para: %s", state["function_name"])
     return {**state, "state_trace": trace, "response": response}
@@ -338,13 +352,37 @@ async def _action_checkout(
     }
 
 
+def _build_payment_confirmation(ctx: dict) -> dict:
+    """Return a confirmation prompt instead of processing payment directly."""
+    order = ctx.get("order")
+    if not order:
+        return {"success": False, "message": "No se encontró una orden pendiente de pago. Primero haz checkout de tu carrito."}
+
+    if order["status"] == "paid":
+        return {"success": False, "message": f"La orden **#{order['id']}** ya fue pagada anteriormente."}
+    if order["status"] == "cancelled":
+        return {"success": False, "message": f"La orden **#{order['id']}** fue cancelada y no se puede pagar."}
+    if order["status"] != "created":
+        return {"success": False, "message": f"La orden **#{order['id']}** está en estado '{order['status']}' y no se puede pagar."}
+
+    return {
+        "needs_confirmation": True,
+        "order_id": order["id"],
+        "amount": order["total"],
+    }
+
+
 async def _action_process_payment(session: AsyncSession, ctx: dict) -> dict:
     order = ctx.get("order")
     if not order:
-        return {"success": False, "message": "Orden no encontrada"}
+        return {"success": False, "message": "No se encontró una orden pendiente de pago. Primero haz checkout de tu carrito."}
 
+    if order["status"] == "paid":
+        return {"success": False, "message": f"La orden **#{order['id']}** ya fue pagada anteriormente."}
+    if order["status"] == "cancelled":
+        return {"success": False, "message": f"La orden **#{order['id']}** fue cancelada y no se puede pagar."}
     if order["status"] != "created":
-        return {"success": False, "message": f"La orden está en estado: {order['status']}"}
+        return {"success": False, "message": f"La orden **#{order['id']}** está en estado '{order['status']}' y no se puede pagar."}
 
     # Mock payment: 85% approved, 15% rejected
     approved = random.random() < 0.85
@@ -367,12 +405,15 @@ async def _action_process_payment(session: AsyncSession, ctx: dict) -> dict:
     else:
         logger.info("Pago rechazado para orden #%d", order["id"])
 
-    return {
+    result = {
         "success": approved,
         "payment_status": status,
         "order_id": order["id"],
         "amount": order["total"],
     }
+    if not approved:
+        result["message"] = f"El pago para la orden **#{order['id']}** fue rechazado. Intenta de nuevo."
+    return result
 
 
 async def _action_cancel_order(session: AsyncSession, ctx: dict) -> dict:
@@ -381,10 +422,10 @@ async def _action_cancel_order(session: AsyncSession, ctx: dict) -> dict:
         return {"success": False, "message": "Orden no encontrada"}
 
     if order["status"] == "paid":
-        return {"success": False, "message": "No se puede cancelar una orden ya pagada"}
+        return {"success": False, "message": f"No se puede cancelar la orden **#{order['id']}** porque ya fue pagada."}
 
     if order["status"] == "cancelled":
-        return {"success": False, "message": "La orden ya está cancelada"}
+        return {"success": False, "message": f"La orden **#{order['id']}** ya está cancelada."}
 
     result = await session.execute(select(Order).where(Order.id == order["id"]))
     db_order = result.scalar_one()

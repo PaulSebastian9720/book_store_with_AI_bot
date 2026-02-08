@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.persistence.models import Book, Cart, CartItem, Order, OrderItem, ExecutionLog
 from app.ai.semantic import select_function, SemanticMatch
-from app.ai.llm import build_natural_response, DOMAIN_GUARDRAIL
+from app.ai.llm import build_natural_response, build_transactional_response, DOMAIN_GUARDRAIL, TRANSACTIONAL_ACTIONS
 from app.flow.graph import run_flow
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ LANGGRAPH_FUNCTIONS = {
     "remove_book_from_cart",
     "checkout_order",
     "process_payment",
+    "confirm_payment",
     "cancel_order",
 }
 
@@ -32,6 +33,7 @@ DIRECT_FUNCTIONS = {
     "get_book_product_details",
     "check_book_stock",
     "get_order_status",
+    "view_cart",
 }
 
 
@@ -231,6 +233,9 @@ async def _execute_direct(
     elif fn_name == "get_order_status":
         return await _get_order_status(user_id, query, session)
 
+    elif fn_name == "view_cart":
+        return await _view_cart(user_id, session)
+
     return {"error": "Función no implementada"}
 
 
@@ -348,6 +353,39 @@ async def _get_order_status(user_id: int, query: str, session: AsyncSession) -> 
     }
 
 
+async def _view_cart(user_id: int, session: AsyncSession) -> dict:
+    result = await session.execute(
+        select(Cart).where(Cart.user_id == user_id, Cart.status == "active")
+    )
+    cart = result.scalar_one_or_none()
+    if not cart:
+        return {"items": [], "total": 0}
+
+    result_items = await session.execute(
+        select(CartItem).where(CartItem.cart_id == cart.id)
+    )
+    cart_items = result_items.scalars().all()
+    if not cart_items:
+        return {"items": [], "total": 0}
+
+    items = []
+    total = 0.0
+    for ci in cart_items:
+        book_result = await session.execute(select(Book).where(Book.id == ci.book_id))
+        book = book_result.scalar_one_or_none()
+        if book:
+            subtotal = book.price * ci.quantity
+            total += subtotal
+            items.append({
+                "title": book.title, "author": book.author,
+                "quantity": ci.quantity, "price": book.price,
+                "subtotal": subtotal,
+            })
+
+    logger.info("Carrito del usuario %d: %d items, total $%.2f", user_id, len(items), total)
+    return {"items": items, "total": total}
+
+
 # ── Parameter extraction ─────────────────────────────────────────────────────
 
 async def _extract_params(query: str, fn_name: str, session: AsyncSession) -> dict:
@@ -370,7 +408,7 @@ async def _extract_params(query: str, fn_name: str, session: AsyncSession) -> di
             params["quantity"] = qty
 
     # Extract order_id (context-aware)
-    if fn_name in ("process_payment", "cancel_order", "get_order_status"):
+    if fn_name in ("process_payment", "confirm_payment", "cancel_order", "get_order_status"):
         order_id = _extract_number(query, context="order_id")
         if order_id:
             params["order_id"] = order_id
@@ -673,7 +711,10 @@ def _is_domain_relevant(query: str) -> bool:
 # ── Response building (LLM-safe) ─────────────────────────────────────────────
 
 async def _build_response_safe(fn_name: str, result_data: dict, query: str) -> str:
-    """Try LLM for natural response, fallback to template if unavailable."""
+    """Use template for transactional actions, LLM for others, fallback to template."""
+    if fn_name in TRANSACTIONAL_ACTIONS:
+        return build_transactional_response(fn_name, result_data)
+
     try:
         response = await build_natural_response({
             "action": fn_name,
@@ -685,7 +726,6 @@ async def _build_response_safe(fn_name: str, result_data: dict, query: str) -> s
     except Exception as e:
         logger.warning("LLM no disponible para respuesta, usando plantilla: %s", str(e))
 
-    # Fallback: use template from llm.py
     from app.ai.llm import _build_fallback_response
     return _build_fallback_response(fn_name, result_data)
 
